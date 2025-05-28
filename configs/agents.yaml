@@ -1,1 +1,37 @@
 # registered agents for prototyping purposes
+
+agents:
+  - AgentID: "agent001"
+    PublicKey: "keys/agent-001.pub"
+    Registered: "2024-06-01T10:00:00Z"
+    LastActive: "2024-06-05T12:00:00Z"
+    RateLimit: 100
+    AnomalyScore: 0.0
+
+  - AgentID: "agent002"
+    PublicKey: "keys/agent-002.pub"
+    Registered: "2024-06-02T11:30:00Z"
+    LastActive: "2024-06-05T13:15:00Z"
+    RateLimit: 150
+    AnomalyScore: 0.1
+
+  - AgentID: "agent003"
+    PublicKey: "keys/agent-003.pub"
+    Registered: "2024-06-03T09:45:00Z"
+    LastActive: "2024-06-05T14:20:00Z"
+    RateLimit: 200
+    AnomalyScore: 0.05
+
+  - AgentID: "agent004"
+    PublicKey: "keys/agent-004.pub"
+    Registered: "2024-06-04T08:20:00Z"
+    LastActive: "2024-06-05T15:30:00Z"
+    RateLimit: 120
+    AnomalyScore: 0.2
+
+  - AgentID: "agent005"
+    PublicKey: "keys/agent-005.pub"
+    Registered: "2024-06-05T07:10:00Z"
+    LastActive: "2024-06-05T16:40:00Z"
+    RateLimit: 80
+    AnomalyScore: 0.15

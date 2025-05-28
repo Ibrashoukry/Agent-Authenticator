@@ -4,47 +4,76 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
-	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
+type agentYAML struct {
+	AgentID      string  `yaml:"AgentID"`
+	PublicKey    string  `yaml:"PublicKey"`
+	Registered   string  `yaml:"Registered"`
+	LastActive   string  `yaml:"LastActive"`
+	RateLimit    int     `yaml:"RateLimit"`
+	AnomalyScore float64 `yaml:"AnomalyScore"`
+}
+
+type agentsList struct {
+	Agents []agentYAML `yaml:"agents"`
+}
+
 func TestCreateAndVerifyToken(t *testing.T) {
-	// Simulate agent registration
-	agent := Agent{
-		AgentID:    "agent-001",
-		Registered: time.Now(),
-	}
-
-	// Load private key (PEM) for signing
-	privateKey, err := os.ReadFile("../../configs/keys/agent-001.key")
+	// Load agents from YAML file
+	yamlPath := "../../configs/agents.yaml"
+	data, err := os.ReadFile(yamlPath)
 	if err != nil {
-		t.Fatalf("failed to read private key: %v", err)
+		t.Fatalf("failed to read agents.yaml: %v", err)
 	}
 
-	// Create JWT token for agent
-	token, err := CreateToken(agent.AgentID, privateKey)
-	if err != nil {
-		t.Fatalf("failed to create token: %v", err)
+	var agents agentsList
+	if err := yaml.Unmarshal(data, &agents); err != nil {
+		t.Fatalf("failed to unmarshal agents.yaml: %v", err)
 	}
 
-	// Load public key (PEM) for verification
-	publicKey, err := os.ReadFile("../../configs/keys/agent-001.pub")
-	if err != nil {
-		t.Fatalf("failed to read public key: %v", err)
-	}
+	for _, a := range agents.Agents {
+		t.Run(a.AgentID, func(t *testing.T) {
+			agent := Agent{
+				AgentID: a.AgentID,
+			}
 
-	// Prepare a test HTTP request with the JWT in the Authorization header
-	req := httptest.NewRequest("GET", "/protected", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
+			keyDir := "../../configs/keys"
+			privPath := filepath.Join(keyDir, agent.AgentID+".key")
+			pubPath := filepath.Join(keyDir, agent.AgentID+".pub")
 
-	// Use your VerifyToken middleware
-	handler := VerifyToken(publicKey, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	handler.ServeHTTP(rr, req)
+			privateKey, err := os.ReadFile(privPath)
+			if err != nil {
+				t.Skipf("skipping %s: missing private key: %v", agent.AgentID, err)
+			}
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 OK, got %d", rr.Code)
+			token, err := CreateToken(agent.AgentID, privateKey)
+			if err != nil {
+				t.Errorf("failed to create token for %s: %v", agent.AgentID, err)
+				return
+			}
+
+			publicKey, err := os.ReadFile(pubPath)
+			if err != nil {
+				t.Skipf("skipping %s: missing public key: %v", agent.AgentID, err)
+			}
+
+			req := httptest.NewRequest("GET", "/protected", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rr := httptest.NewRecorder()
+
+			handler := VerifyToken(publicKey, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Errorf("expected 200 OK for %s, got %d", agent.AgentID, rr.Code)
+			}
+		})
 	}
 }

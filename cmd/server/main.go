@@ -3,8 +3,19 @@ package main
 import (
 	"log"
 	"net/http"
-	// ...add other imports as needed (e.g., for config, middleware, etc.)...
+	"time"
+
+	"agent-auth/internal/auth"
+	"agent-auth/internal/monitor"
+	"agent-auth/internal/ratelimit"
 )
+
+func withMiddlewares(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		h = middlewares[i](h)
+	}
+	return h
+}
 
 func main() {
 	// TODO: Load configuration (keys, rate limits, etc.)
@@ -17,26 +28,39 @@ func main() {
 
 	// TODO: Initialize monitoring/metrics
 
+	// Initialize rate limiter (e.g., 10 requests per minute per agent)
+	rl := ratelimit.NewInMemoryRateLimiter(10, time.Minute)
+
 	mux := http.NewServeMux()
 
-	// Agent registration endpoint
+	// Serve static dashboard files at /dashboard/
+	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir("web/dashboard"))))
+
+	// Agent registration endpoint (no rate limit)
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Implement agent registration and RSA key management
 		w.Write([]byte("Agent registration endpoint"))
 	})
 
-	// Authenticated agent endpoint (example)
-	mux.HandleFunc("/agent", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Add JWT authentication middleware
-		// TODO: Add rate limiting middleware
-		w.Write([]byte("Authenticated agent endpoint"))
+	// Authenticated agent endpoint (with JWT, rate limiting, logging/anomaly)
+	agentHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agentID, ok := auth.GetAgentID(r.Context())
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("Missing agent ID in context"))
+			return
+		}
+		w.Write([]byte("Authenticated agent: " + agentID))
 	})
+	mux.Handle("/agent", withMiddlewares(
+		agentHandler,
+		ratelimit.LoggingAndAnomalyMiddleware,
+		ratelimit.JWTAuthMiddleware,
+		ratelimit.RateLimitMiddleware(rl),
+	))
 
-	// Monitoring endpoint (example)
-	mux.HandleFunc("/monitor", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Implement monitoring dashboard backend
-		w.Write([]byte("Monitoring dashboard endpoint"))
-	})
+	// Monitoring endpoint (returns dashboard JSON)
+	mux.HandleFunc("/monitor", monitor.DashboardHandler)
 
 	// TODO: Add middleware for logging, anomaly detection, etc.
 
