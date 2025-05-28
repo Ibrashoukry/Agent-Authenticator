@@ -1,10 +1,12 @@
+package auth
+
 import (
 	"time"
 )
 
 /* Agent Registration */
 type Agent struct {
-	ID           string    // unique agent id
+	AgentID      string    // unique agent id
 	PublicKey    string    // PEM-encoded RSA public key
 	Registered   time.Time // registration timestamp
 	LastActive   time.Time // last active timestamp
