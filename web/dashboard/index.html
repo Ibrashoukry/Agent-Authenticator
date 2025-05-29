@@ -93,18 +93,21 @@ function updateTable(agents) {
     const statusBadge = active
       ? '<span class="badge bg-success">Active</span>'
       : '<span class="badge bg-secondary">Inactive</span>';
-    let anomalyTags = [];
-    if (agent.anomalies && Array.isArray(agent.anomalies)) {
-      anomalyTags = agent.anomalies;
-    } else if (agent.anomalies > 0) {
-      anomalyTags = ['Rapid requests'];
+    // Show anomaly count as before, but if anomalies is an array, show the count and add a tooltip with the anomaly tags for better visibility
+    let anomalyCount = 0;
+    if (Array.isArray(agent.anomalies)) {
+      anomalyCount = agent.anomalies.length;
+    } else if (typeof agent.anomalies === 'number') {
+      anomalyCount = agent.anomalies;
     }
-    const anomalyHtml = anomalyTags.map(tag => `<span class="badge bg-danger me-1">${tag}</span>`).join('');
+    const anomalyCell = anomalyCount > 0
+      ? `<td class="text-danger fw-bold" title="${Array.isArray(agent.anomalies) ? agent.anomalies.join(', ') : ''}">${anomalyCount}</td>`
+      : `<td>0</td>`;
     const row = `<tr>
       <td>${agent.agent_id}</td>
       <td>${formatTime(agent.last_active)}</td>
       <td>${agent.requests}</td>
-      <td>${anomalyHtml}</td>
+      ${anomalyCell}
       <td>${statusBadge}</td>
     </tr>`;
     agentTableBody.insertAdjacentHTML('beforeend', row);
@@ -113,8 +116,9 @@ function updateTable(agents) {
 
 function updateCharts(agents) {
   const labels = agents.map(a => a.agent_id);
+  // For anomalies, use the count (array length or number)
+  const anoms = agents.map(a => Array.isArray(a.anomalies) ? a.anomalies.length : (typeof a.anomalies === 'number' ? a.anomalies : 0));
   const reqs = agents.map(a => a.requests);
-  const anoms = agents.map(a => a.anomalies);
 
   if (!requestsChart) {
     requestsChart = new Chart(document.getElementById('requestsChart'), {
