@@ -81,6 +81,3 @@ for i in {1..3}; do curl -H "Authorization: Bearer <PASTE_JWT_HERE>" http://loca
 
 ---
 
-**Note:**
-- Some anomaly types (e.g., multiple IPs, suspicious payload) require backend support to detect and tag. If not yet implemented, the dashboard will only show tags for anomalies detected by your backend.
-- You may need to extend your Go backend to populate the `anomalies` field as an array of strings for full support.

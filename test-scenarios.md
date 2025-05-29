@@ -130,7 +130,3 @@ Expected: HTTP 401, response contains `Invalid token`.
 After running tests, check the Raw Data section in the dashboard for agent stats and anomalies.
 
 ---
-
-**Tip:**
-- Use the logs for detailed anomaly and authentication traces.
-- Use the dashboard for a live view of agent activity and anomalies.
