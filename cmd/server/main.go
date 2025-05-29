@@ -33,8 +33,16 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Serve static dashboard files at /dashboard/
+	// Serve static dashboard files only at /dashboard/
 	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir("web/dashboard"))))
+	// Redirect base URL / to /dashboard/ only if path is exactly "/"
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/dashboard/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
 
 	// Agent registration endpoint (no rate limit)
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +53,7 @@ func main() {
 	// Authenticated agent endpoint (with JWT, rate limiting, logging/anomaly)
 	agentHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		agentID, ok := auth.GetAgentID(r.Context())
+		log.Printf("[agentHandler] agentID from context: '%s' (ok=%v)", agentID, ok)
 		if !ok {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("Missing agent ID in context"))
@@ -54,9 +63,9 @@ func main() {
 	})
 	mux.Handle("/agent", withMiddlewares(
 		agentHandler,
-		ratelimit.LoggingAndAnomalyMiddleware,
 		ratelimit.JWTAuthMiddleware,
 		ratelimit.RateLimitMiddleware(rl),
+		ratelimit.LoggingAndAnomalyMiddleware,
 	))
 
 	// Monitoring endpoint (returns dashboard JSON)

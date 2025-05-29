@@ -22,8 +22,9 @@ type RateLimiter interface {
 func RateLimitMiddleware(rl RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			agentID := extractAgentID(r)
-			if agentID == "" {
+			log.Printf("[RateLimitMiddleware] called")
+			agentID, ok := auth.GetAgentID(r.Context())
+			if !ok || agentID == "" {
 				w.WriteHeader(http.StatusUnauthorized)
 				w.Write([]byte("Missing or invalid agent ID"))
 				return
@@ -36,16 +37,6 @@ func RateLimitMiddleware(rl RateLimiter) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// Dummy extractor: Replace with JWT/context extraction as needed.
-func extractAgentID(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		// TODO: Parse JWT and extract agent ID claim
-		return "agent-001" // placeholder
-	}
-	return ""
 }
 
 type agentConfig struct {
@@ -62,7 +53,7 @@ type agentConfigList struct {
 
 // Loads agent configs from YAML for JWT validation
 func loadAgentConfigs() (map[string]string, error) {
-	path := filepath.Join("..", "..", "configs", "agents.yaml")
+	path := "configs/agents.yaml"
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -74,7 +65,7 @@ func loadAgentConfigs() (map[string]string, error) {
 	}
 	m := make(map[string]string)
 	for _, a := range list.Agents {
-		m[a.AgentID] = filepath.Join("..", "..", "configs", a.PublicKey)
+		m[a.AgentID] = filepath.Join("configs", a.PublicKey)
 	}
 	return m, nil
 }
@@ -82,13 +73,17 @@ func loadAgentConfigs() (map[string]string, error) {
 // JWT Auth middleware: validates JWT and sets agentID in context
 func JWTAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[JWTAuthMiddleware] called")
 		agentKeys, err := loadAgentConfigs()
 		if err != nil {
+			log.Printf("[JWTAuthMiddleware] Server config error: %v", err)
 			http.Error(w, "Server config error", http.StatusInternalServerError)
 			return
 		}
 		authHeader := r.Header.Get("Authorization")
+		log.Printf("[JWTAuthMiddleware] Authorization header: '%s'", authHeader)
 		if !strings.HasPrefix(authHeader, "Bearer ") {
+			log.Printf("[JWTAuthMiddleware] Missing Bearer token")
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -96,9 +91,11 @@ func JWTAuthMiddleware(next http.Handler) http.Handler {
 		// Parse JWT to get agentID (sub claim)
 		agentID, err := auth.ExtractAgentIDFromJWT(tokenString, agentKeys)
 		if err != nil {
+			log.Printf("[JWTAuthMiddleware] Invalid token: %v", err)
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
+		log.Printf("[JWTAuthMiddleware] Extracted agentID: '%s'", agentID)
 		// Set agentID in context for downstream use
 		r = r.WithContext(auth.WithAgentID(r.Context(), agentID))
 		next.ServeHTTP(w, r)
@@ -108,20 +105,112 @@ func JWTAuthMiddleware(next http.Handler) http.Handler {
 // Logging and anomaly detection middleware
 func LoggingAndAnomalyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[LoggingAndAnomalyMiddleware] called")
 		start := time.Now()
+		tags := []string{}
 		agentID, _ := auth.GetAgentID(r.Context())
 		// Log request
 		log.Printf("agent=%s method=%s path=%s remote=%s", agentID, r.Method, r.URL.Path, r.RemoteAddr)
-		// Simple anomaly detection: log if request is too fast (e.g., <100ms since last)
-		isAnomaly, delta := isAnomalous(agentID)
-		if isAnomaly {
+		// Rapid requests anomaly
+		isRapid, delta := isAnomalous(agentID)
+		if isRapid {
 			log.Printf("ANOMALY: agent=%s rapid requests (delta=%.2fms)", agentID, delta.Seconds()*1000)
+			tags = append(tags, "Rapid requests")
+		}
+		// Frequent rate limit violations (simulate: if last 3 requests < 1s apart)
+		if checkFrequentRateLimit(agentID) {
+			tags = append(tags, "Frequent rate limit violations")
+		}
+		// Request spike detected (simulate: if 5+ requests in last 2s)
+		if checkRequestSpike(agentID) {
+			tags = append(tags, "Request spike detected")
+		}
+		// Repeated auth failures (simulate: if 3+ failures in last 1m)
+		if checkAuthFailures(agentID) {
+			tags = append(tags, "Repeated auth failures")
+		}
+		// Multiple IPs detected (simulate: if agentID seen from 2+ IPs in last 1m)
+		if checkMultipleIPs(agentID, r.RemoteAddr) {
+			tags = append(tags, "Multiple IPs detected")
+		}
+		// Suspicious payload (simulate: POST with unexpected data)
+		if r.Method == "POST" && r.Header.Get("Content-Type") == "application/json" {
+			tags = append(tags, "Suspicious payload")
+		}
+		// Inactivity burst anomaly (simulate: if >3min inactive, then 2+ requests in 10s)
+		if checkInactivityBurst(agentID) {
+			tags = append(tags, "Inactivity burst anomaly")
 		}
 		// Update dashboard stats
-		monitor.UpdateAgentStatus(agentID, time.Now(), isAnomaly)
+		monitor.UpdateAgentStatus(agentID, time.Now(), tags)
 		next.ServeHTTP(w, r)
 		log.Printf("agent=%s status=done duration=%s", agentID, time.Since(start))
 	})
+}
+
+// --- Simulated anomaly checkers (stub logic, replace with real logic as needed) ---
+var (
+	lastRequestTimes = make(map[string][]time.Time) // for spike/frequency
+	authFailures     = make(map[string][]time.Time)
+	agentIPs         = make(map[string]map[string]time.Time)
+)
+
+func checkFrequentRateLimit(agentID string) bool {
+	times := lastRequestTimes[agentID]
+	if len(times) < 3 {
+		return false
+	}
+	return times[len(times)-1].Sub(times[len(times)-3]) < time.Second
+}
+
+func checkRequestSpike(agentID string) bool {
+	times := lastRequestTimes[agentID]
+	now := time.Now()
+	count := 0
+	for i := len(times) - 1; i >= 0; i-- {
+		if now.Sub(times[i]) < 2*time.Second {
+			count++
+		}
+	}
+	return count >= 5
+}
+
+func checkAuthFailures(agentID string) bool {
+	failures := authFailures[agentID]
+	now := time.Now()
+	count := 0
+	for i := len(failures) - 1; i >= 0; i-- {
+		if now.Sub(failures[i]) < time.Minute {
+			count++
+		}
+	}
+	return count >= 3
+}
+
+func checkMultipleIPs(agentID, ip string) bool {
+	if agentIPs[agentID] == nil {
+		agentIPs[agentID] = make(map[string]time.Time)
+	}
+	agentIPs[agentID][ip] = time.Now()
+	count := 0
+	now := time.Now()
+	for _, t := range agentIPs[agentID] {
+		if now.Sub(t) < time.Minute {
+			count++
+		}
+	}
+	return count >= 2
+}
+
+func checkInactivityBurst(agentID string) bool {
+	times := lastRequestTimes[agentID]
+	if len(times) < 2 {
+		return false
+	}
+	if times[len(times)-2].Add(3 * time.Minute).Before(times[len(times)-1]) {
+		return true
+	}
+	return false
 }
 
 // Simple in-memory last request time for anomaly detection
@@ -135,8 +224,10 @@ func isAnomalous(agentID string) (bool, time.Duration) {
 		return false, 0
 	}
 	delta := now.Sub(last)
-	if delta < 100*time.Millisecond {
-		return true, delta
+	// Track for spike/frequency
+	lastRequestTimes[agentID] = append(lastRequestTimes[agentID], now)
+	if len(lastRequestTimes[agentID]) > 10 {
+		lastRequestTimes[agentID] = lastRequestTimes[agentID][1:]
 	}
-	return false, delta
+	return delta < 100*time.Millisecond, delta
 }

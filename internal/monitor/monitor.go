@@ -11,7 +11,7 @@ type AgentStatus struct {
 	AgentID    string    `json:"agent_id"`
 	LastActive time.Time `json:"last_active"`
 	Requests   int       `json:"requests"`
-	Anomalies  int       `json:"anomalies"`
+	Anomalies  []string  `json:"anomalies"`
 }
 
 type DashboardData struct {
@@ -25,7 +25,7 @@ var (
 )
 
 // UpdateAgentStatus is called by middleware to update agent stats
-func UpdateAgentStatus(agentID string, lastActive time.Time, isAnomaly bool) {
+func UpdateAgentStatus(agentID string, lastActive time.Time, anomalyTags []string) {
 	dashboardMu.Lock()
 	defer dashboardMu.Unlock()
 	found := false
@@ -33,8 +33,20 @@ func UpdateAgentStatus(agentID string, lastActive time.Time, isAnomaly bool) {
 		if a.AgentID == agentID {
 			dashboardData.Agents[i].LastActive = lastActive
 			dashboardData.Agents[i].Requests++
-			if isAnomaly {
-				dashboardData.Agents[i].Anomalies++
+			if len(anomalyTags) > 0 {
+				// Merge new anomaly tags, avoid duplicates
+				tagsMap := make(map[string]struct{})
+				for _, t := range dashboardData.Agents[i].Anomalies {
+					tagsMap[t] = struct{}{}
+				}
+				for _, t := range anomalyTags {
+					tagsMap[t] = struct{}{}
+				}
+				merged := make([]string, 0, len(tagsMap))
+				for t := range tagsMap {
+					merged = append(merged, t)
+				}
+				dashboardData.Agents[i].Anomalies = merged
 			}
 			found = true
 			break
@@ -45,13 +57,7 @@ func UpdateAgentStatus(agentID string, lastActive time.Time, isAnomaly bool) {
 			AgentID:    agentID,
 			LastActive: lastActive,
 			Requests:   1,
-			Anomalies: func() int {
-				if isAnomaly {
-					return 1
-				} else {
-					return 0
-				}
-			}(),
+			Anomalies:  anomalyTags,
 		})
 	}
 	dashboardData.Timestamp = time.Now()
