@@ -72,12 +72,5 @@ Wait 3+ minutes without requests, then send several requests quickly:
 for i in {1..3}; do curl -H "Authorization: Bearer <PASTE_JWT_HERE>" http://localhost:8080/agent; done
 ```
 
----
 
-## 8. Dashboard Verification
-
-- After each test, check the "Anomalies" column in the Agent Activity table for the correct tags (e.g., "Rapid requests", "Frequent rate limit violations", etc.).
-- Multiple tags may appear if multiple anomalies are detected for the same agent.
-
----
 

@@ -123,10 +123,4 @@ Expected: HTTP 401, response contains `Invalid token`.
 
 Expected: HTTP 401, response contains `Invalid token`.
 
----
 
-## 10. Raw Data Debugging
-
-After running tests, check the Raw Data section in the dashboard for agent stats and anomalies.
-
----
